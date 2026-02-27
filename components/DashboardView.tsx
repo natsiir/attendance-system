@@ -1,17 +1,17 @@
 "use client";
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useWarga, usePresensi } from '@/hooks/useData';
 import { StatCard, Button, Card } from '@/components/UI';
-import { Users, CheckCircle, XCircle, Search, Calendar, FileText, LogOut, ClipboardList } from 'lucide-react';
+import { Users, CheckCircle, XCircle, Search, Calendar, FileText, LogOut, ClipboardList, Plus } from 'lucide-react';
 import { format } from 'date-fns';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { cn } from '@/lib/utils';
 
 export const DashboardView = ({ user, onLogout }: { user: any; onLogout: () => void }) => {
-  const { warga, loading: loadingWarga } = useWarga();
-  const { logs, loading: loadingLogs, refresh } = usePresensi();
+  const { warga, loading: loadingWarga, refresh: refreshWarga, setWarga } = useWarga();
+  const { logs, loading: loadingLogs, refresh, setLogs } = usePresensi();
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedDate, setSelectedDate] = useState(format(new Date(), 'yyyy-MM-dd'));
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -20,10 +20,27 @@ export const DashboardView = ({ user, onLogout }: { user: any; onLogout: () => v
   const [keterangan, setKeterangan] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
-  const filteredWarga = warga.filter((w) =>
-    w.nama.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    w.kelompok.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [newId, setNewId] = useState('');
+  const [newNama, setNewNama] = useState('');
+  const [newKelompok, setNewKelompok] = useState('');
+  const [newGelombang, setNewGelombang] = useState('');
+  const [newAlamat, setNewAlamat] = useState('');
+  const [addLoading, setAddLoading] = useState(false);
+  const [addError, setAddError] = useState('');
+
+  const todaysAttendedIds = useMemo(() => {
+    return new Set(logs.filter((l) => l.tanggal === selectedDate).map((l) => l.id));
+  }, [logs, selectedDate]);
+
+  const filteredWarga = warga.filter((w) => {
+    if (todaysAttendedIds.has(w.id)) return false;
+
+    return (
+      w.nama.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      w.kelompok.toLowerCase().includes(searchTerm.toLowerCase())
+    );
+  });
 
   const stats = {
     total: warga.length,
@@ -31,50 +48,115 @@ export const DashboardView = ({ user, onLogout }: { user: any; onLogout: () => v
     izin: logs.filter((l) => l.tanggal === selectedDate && l.status === 'Izin').length,
   };
 
+  const closeAttendanceModal = () => {
+    setIsModalOpen(false);
+    setSelectedWarga(null);
+    setStatus('Hadir');
+    setKeterangan('');
+  };
+
   const handlePresensi = async () => {
     if (!selectedWarga) return;
     setSubmitting(true);
+
+    const payload = {
+      id: selectedWarga.id,
+      nama: selectedWarga.nama,
+      tanggal: selectedDate,
+      status,
+      keterangan: status === 'Izin' ? keterangan : '-',
+    };
+
     try {
-      await fetch('/api/presensi', {
+      const res = await fetch('/api/presensi', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          id: selectedWarga.id,
-          nama: selectedWarga.nama,
-          tanggal: selectedDate,
-          status,
-          keterangan: status === 'Izin' ? keterangan : '-',
-        }),
+        credentials: 'include',
+        body: JSON.stringify(payload),
       });
+
+      if (!res.ok) {
+        throw new Error('Gagal menyimpan presensi');
+      }
+
+      setLogs((prev) => {
+        const withoutCurrent = prev.filter((l) => !(l.id === payload.id && l.tanggal === payload.tanggal));
+
+        return [
+          ...withoutCurrent,
+          {
+            ...payload,
+            timestamp: new Date().toISOString(),
+          },
+        ];
+      });
+
+      closeAttendanceModal();
       refresh();
-      setIsModalOpen(false);
-      setSelectedWarga(null);
-      setKeterangan('');
-    } catch (err) {
+    } catch {
       alert('Gagal menyimpan presensi');
     } finally {
       setSubmitting(false);
     }
   };
 
+  const handleAddPeserta = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setAddError('');
+    setAddLoading(true);
+
+    try {
+      const res = await fetch('/api/warga', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          id: newId,
+          nama: newNama,
+          kelompok: newKelompok,
+          gelombang: newGelombang,
+          alamat: newAlamat,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        setAddError(data?.message || 'Gagal menambah peserta');
+        return;
+      }
+
+      setWarga((prev) => [...prev, data]);
+      setIsAddModalOpen(false);
+      setNewId('');
+      setNewNama('');
+      setNewKelompok('');
+      setNewGelombang('');
+      setNewAlamat('');
+      refreshWarga();
+    } catch {
+      setAddError('Gagal menambah peserta');
+    } finally {
+      setAddLoading(false);
+    }
+  };
+
   const exportPDF = () => {
     const doc = new jsPDF();
     const dateLogs = logs.filter((l) => l.tanggal === selectedDate);
-    
+
     doc.text(`Laporan Presensi Pengajian - ${selectedDate}`, 14, 15);
-    
+
     autoTable(doc, {
       startY: 25,
       head: [['ID', 'Nama', 'Status', 'Keterangan', 'Waktu']],
       body: dateLogs.map((l) => [l.id, l.nama, l.status, l.keterangan, format(new Date(l.timestamp), 'HH:mm')]),
     });
-    
+
     doc.save(`Presensi_${selectedDate}.pdf`);
   };
 
   return (
     <div className="min-h-screen bg-slate-50 pb-12">
-      {/* Navbar */}
       <nav className="bg-white border-b border-slate-200 sticky top-0 z-10">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between h-16 items-center">
@@ -99,14 +181,12 @@ export const DashboardView = ({ user, onLogout }: { user: any; onLogout: () => v
       </nav>
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-8">
-        {/* Analytics */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
           <StatCard title="Total Warga" value={stats.total} icon={Users} color="bg-blue-500" />
           <StatCard title="Hadir Hari Ini" value={stats.hadir} icon={CheckCircle} color="bg-emerald-500" />
           <StatCard title="Izin Hari Ini" value={stats.izin} icon={XCircle} color="bg-amber-500" />
         </div>
 
-        {/* Controls */}
         <div className="flex flex-col md:flex-row gap-4 mb-6 items-center justify-between">
           <div className="relative w-full md:w-96">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
@@ -128,6 +208,10 @@ export const DashboardView = ({ user, onLogout }: { user: any; onLogout: () => v
                 onChange={(e) => setSelectedDate(e.target.value)}
               />
             </div>
+            <Button variant="outline" onClick={() => setIsAddModalOpen(true)} className="gap-2">
+              <Plus className="w-4 h-4" />
+              Tambah Peserta
+            </Button>
             <Button variant="secondary" onClick={exportPDF} className="gap-2">
               <FileText className="w-4 h-4" />
               Export PDF
@@ -135,7 +219,6 @@ export const DashboardView = ({ user, onLogout }: { user: any; onLogout: () => v
           </div>
         </div>
 
-        {/* Warga List */}
         <Card>
           <div className="overflow-x-auto">
             <table className="w-full text-left">
@@ -148,47 +231,34 @@ export const DashboardView = ({ user, onLogout }: { user: any; onLogout: () => v
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200">
-                {loadingWarga ? (
+                {loadingWarga || loadingLogs ? (
                   <tr><td colSpan={4} className="px-6 py-12 text-center text-slate-500">Memuat data...</td></tr>
                 ) : filteredWarga.length === 0 ? (
-                  <tr><td colSpan={4} className="px-6 py-12 text-center text-slate-500">Tidak ada data ditemukan</td></tr>
+                  <tr><td colSpan={4} className="px-6 py-12 text-center text-slate-500">Semua peserta sudah absen / tidak ada data</td></tr>
                 ) : (
-                  filteredWarga.map((w) => {
-                    const log = logs.find((l) => l.id === w.id && l.tanggal === selectedDate);
-                    return (
-                      <tr key={w.id} className="hover:bg-slate-50 transition-colors">
-                        <td className="px-6 py-4">
-                          <p className="font-medium text-slate-900">{w.nama}</p>
-                          <p className="text-xs text-slate-500">ID: {w.id}</p>
-                        </td>
-                        <td className="px-6 py-4 text-sm text-slate-600">{w.kelompok}</td>
-                        <td className="px-6 py-4">
-                          {log ? (
-                            <span className={cn(
-                              'px-2 py-1 rounded-full text-xs font-medium',
-                              log.status === 'Hadir' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'
-                            )}>
-                              {log.status}
-                            </span>
-                          ) : (
-                            <span className="text-xs text-slate-400 italic">Belum Absen</span>
-                          )}
-                        </td>
-                        <td className="px-6 py-4 text-right">
-                          <Button
-                            size="sm"
-                            variant={log ? 'outline' : 'primary'}
-                            onClick={() => {
-                              setSelectedWarga(w);
-                              setIsModalOpen(true);
-                            }}
-                          >
-                            {log ? 'Ubah' : 'Absen'}
-                          </Button>
-                        </td>
-                      </tr>
-                    );
-                  })
+                  filteredWarga.map((w) => (
+                    <tr key={w.id} className="hover:bg-slate-50 transition-colors">
+                      <td className="px-6 py-4">
+                        <p className="font-medium text-slate-900">{w.nama}</p>
+                        <p className="text-xs text-slate-500">ID: {w.id}</p>
+                      </td>
+                      <td className="px-6 py-4 text-sm text-slate-600">{w.kelompok}</td>
+                      <td className="px-6 py-4">
+                        <span className="text-xs text-slate-400 italic">Belum Absen</span>
+                      </td>
+                      <td className="px-6 py-4 text-right">
+                        <Button
+                          size="sm"
+                          onClick={() => {
+                            setSelectedWarga(w);
+                            setIsModalOpen(true);
+                          }}
+                        >
+                          Absen
+                        </Button>
+                      </td>
+                    </tr>
+                  ))
                 )}
               </tbody>
             </table>
@@ -196,7 +266,6 @@ export const DashboardView = ({ user, onLogout }: { user: any; onLogout: () => v
         </Card>
       </main>
 
-      {/* Attendance Modal */}
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
           <Card className="w-full max-w-md p-6 animate-in fade-in zoom-in duration-200">
@@ -243,10 +312,47 @@ export const DashboardView = ({ user, onLogout }: { user: any; onLogout: () => v
               )}
 
               <div className="flex gap-3 pt-4">
-                <Button variant="outline" className="flex-1" onClick={() => setIsModalOpen(false)}>Batal</Button>
+                <Button variant="outline" className="flex-1" onClick={closeAttendanceModal}>Batal</Button>
                 <Button className="flex-1" onClick={handlePresensi} isLoading={submitting}>Simpan</Button>
               </div>
             </div>
+          </Card>
+        </div>
+      )}
+
+      {isAddModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+          <Card className="w-full max-w-lg p-6 animate-in fade-in zoom-in duration-200">
+            <h2 className="text-xl font-bold text-slate-900 mb-4">Tambah Peserta Baru</h2>
+            <form onSubmit={handleAddPeserta} className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">ID</label>
+                  <input required className="w-full px-4 py-2 rounded-lg border border-slate-300" value={newId} onChange={(e) => setNewId(e.target.value)} />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Nama</label>
+                  <input required className="w-full px-4 py-2 rounded-lg border border-slate-300" value={newNama} onChange={(e) => setNewNama(e.target.value)} />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Kelompok</label>
+                  <input required className="w-full px-4 py-2 rounded-lg border border-slate-300" value={newKelompok} onChange={(e) => setNewKelompok(e.target.value)} />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Gelombang</label>
+                  <input required className="w-full px-4 py-2 rounded-lg border border-slate-300" value={newGelombang} onChange={(e) => setNewGelombang(e.target.value)} />
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Alamat</label>
+                <textarea required className="w-full px-4 py-2 rounded-lg border border-slate-300" rows={3} value={newAlamat} onChange={(e) => setNewAlamat(e.target.value)} />
+              </div>
+              {addError && <p className="text-sm text-red-500">{addError}</p>}
+              <div className="flex gap-3 pt-2">
+                <Button type="button" variant="outline" className="flex-1" onClick={() => setIsAddModalOpen(false)}>Batal</Button>
+                <Button type="submit" className="flex-1" isLoading={addLoading}>Simpan Peserta</Button>
+              </div>
+            </form>
           </Card>
         </div>
       )}
