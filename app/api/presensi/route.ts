@@ -47,9 +47,9 @@ export async function GET() {
     if (!rows) return NextResponse.json([]);
 
     const logs = rows.map((row) => ({
-      id: row[0],
-      nama: row[1],
-      tanggal: normalizeTanggal(row[2]),
+      id: (row[0] ?? '').toString().trim(),
+      nama: (row[1] ?? '').toString().trim(),
+      tanggal: normalizeTanggal((row[2] ?? '').toString().trim()),
       status: row[3],
       keterangan: row[4],
       timestamp: row[5],

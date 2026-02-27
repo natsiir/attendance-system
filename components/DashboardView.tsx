@@ -29,16 +29,29 @@ export const DashboardView = ({ user, onLogout }: { user: any; onLogout: () => v
   const [addLoading, setAddLoading] = useState(false);
   const [addError, setAddError] = useState('');
 
-  const todaysAttendedIds = useMemo(() => {
-    return new Set(logs.filter((l) => l.tanggal === selectedDate).map((l) => l.id));
+  const normalizeKey = (value: string) => value.trim().toLowerCase();
+
+
+  const todaysAttendanceMap = useMemo(() => {
+    const attendanceById = new Map<string, typeof logs[number]>();
+    const attendanceByName = new Map<string, typeof logs[number]>();
+
+    logs
+      .filter((l) => l.tanggal === selectedDate)
+      .forEach((l) => {
+        if (l.id) attendanceById.set(normalizeKey(l.id), l);
+        if (l.nama) attendanceByName.set(normalizeKey(l.nama), l);
+      });
+
+    return { attendanceById, attendanceByName };
   }, [logs, selectedDate]);
 
   const filteredWarga = warga.filter((w) => {
-    if (todaysAttendedIds.has(w.id)) return false;
-
+    const query = searchTerm.toLowerCase();
     return (
-      w.nama.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      w.kelompok.toLowerCase().includes(searchTerm.toLowerCase())
+      w.nama.toLowerCase().includes(query) ||
+      w.kelompok.toLowerCase().includes(query) ||
+      w.id.toLowerCase().includes(query)
     );
   });
 
@@ -80,7 +93,13 @@ export const DashboardView = ({ user, onLogout }: { user: any; onLogout: () => v
       }
 
       setLogs((prev) => {
-        const withoutCurrent = prev.filter((l) => !(l.id === payload.id && l.tanggal === payload.tanggal));
+        const withoutCurrent = prev.filter(
+          (l) =>
+            !(
+              l.tanggal === payload.tanggal &&
+              (normalizeKey(l.id) === normalizeKey(payload.id) || normalizeKey(l.nama) === normalizeKey(payload.nama))
+            ),
+        );
 
         return [
           ...withoutCurrent,
@@ -234,30 +253,53 @@ export const DashboardView = ({ user, onLogout }: { user: any; onLogout: () => v
                 {loadingWarga || loadingLogs ? (
                   <tr><td colSpan={4} className="px-6 py-12 text-center text-slate-500">Memuat data...</td></tr>
                 ) : filteredWarga.length === 0 ? (
-                  <tr><td colSpan={4} className="px-6 py-12 text-center text-slate-500">Semua peserta sudah absen / tidak ada data</td></tr>
+                  <tr><td colSpan={4} className="px-6 py-12 text-center text-slate-500">Tidak ada data peserta yang cocok</td></tr>
                 ) : (
                   filteredWarga.map((w) => (
-                    <tr key={w.id} className="hover:bg-slate-50 transition-colors">
-                      <td className="px-6 py-4">
-                        <p className="font-medium text-slate-900">{w.nama}</p>
-                        <p className="text-xs text-slate-500">ID: {w.id}</p>
-                      </td>
-                      <td className="px-6 py-4 text-sm text-slate-600">{w.kelompok}</td>
-                      <td className="px-6 py-4">
-                        <span className="text-xs text-slate-400 italic">Belum Absen</span>
-                      </td>
-                      <td className="px-6 py-4 text-right">
-                        <Button
-                          size="sm"
-                          onClick={() => {
-                            setSelectedWarga(w);
-                            setIsModalOpen(true);
-                          }}
-                        >
-                          Absen
-                        </Button>
-                      </td>
-                    </tr>
+                    (() => {
+                      const attendance =
+                        todaysAttendanceMap.attendanceById.get(normalizeKey(w.id)) ||
+                        todaysAttendanceMap.attendanceByName.get(normalizeKey(w.nama));
+
+                      return (
+                        <tr key={w.id} className="hover:bg-slate-50 transition-colors">
+                          <td className="px-6 py-4">
+                            <p className="font-medium text-slate-900">{w.nama}</p>
+                            <p className="text-xs text-slate-500">ID: {w.id}</p>
+                          </td>
+                          <td className="px-6 py-4 text-sm text-slate-600">{w.kelompok}</td>
+                          <td className="px-6 py-4">
+                            {attendance ? (
+                              <span
+                                className={cn(
+                                  'inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium',
+                                  attendance.status === 'Hadir'
+                                    ? 'bg-emerald-100 text-emerald-700'
+                                    : 'bg-amber-100 text-amber-700',
+                                )}
+                              >
+                                {attendance.status}
+                              </span>
+                            ) : (
+                              <span className="text-xs text-slate-400 italic">Belum Absen</span>
+                            )}
+                          </td>
+                          <td className="px-6 py-4 text-right">
+                            <Button
+                              size="sm"
+                              onClick={() => {
+                                setSelectedWarga(w);
+                                setStatus(attendance?.status === 'Izin' ? 'Izin' : 'Hadir');
+                                setKeterangan(attendance?.status === 'Izin' ? attendance.keterangan : '');
+                                setIsModalOpen(true);
+                              }}
+                            >
+                              {attendance ? 'Ubah' : 'Absen'}
+                            </Button>
+                          </td>
+                        </tr>
+                      );
+                    })()
                   ))
                 )}
               </tbody>
