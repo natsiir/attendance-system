@@ -2,10 +2,11 @@
 
 @theme {
   --font-sans: var(--font-poppins), ui-sans-serif, system-ui, sans-serif;
+  --font-serif: var(--font-libre-baskerville), ui-serif, Georgia, serif;
 }
 
 @layer base {
   body {
-    @apply bg-slate-50 text-slate-900;
+    @apply bg-[#F5F5DC] text-[#333333];
   }
 }

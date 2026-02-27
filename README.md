@@ -4,6 +4,6 @@
 
 1. Install dependencies:
    `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
+2. Set environment variables in [.env.local](.env.local) based on [.env.example](.env.example), including `SESSION_SECRET` for signed auth cookies
 3. Run the app:
    `npm run dev`
