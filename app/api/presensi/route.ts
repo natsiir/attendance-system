@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { google } from 'googleapis';
+import { getSessionFromCookies } from '@/lib/auth';
 
 const auth = new google.auth.GoogleAuth({
   credentials: {
@@ -13,6 +14,8 @@ const sheets = google.sheets({ version: "v4", auth });
 const SPREADSHEET_ID = process.env.GOOGLE_SHEET_ID;
 
 export async function GET() {
+  const session = await getSessionFromCookies();
+  if (!session) return NextResponse.json({ message: 'Unauthorized' }, { status: 401 });
   try {
     const response = await sheets.spreadsheets.values.get({
       spreadsheetId: SPREADSHEET_ID,
@@ -39,6 +42,8 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
+  const session = await getSessionFromCookies();
+  if (!session) return NextResponse.json({ message: 'Unauthorized' }, { status: 401 });
   const { id, nama, tanggal, status, keterangan } = await request.json();
   const timestamp = new Date().toISOString();
 

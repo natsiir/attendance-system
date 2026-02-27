@@ -10,25 +10,38 @@ export default function Home() {
   const [isInitialized, setIsInitialized] = useState(false);
 
   useEffect(() => {
-    const savedUser = localStorage.getItem('presensi_user');
-    if (savedUser) {
+    const initSession = async () => {
       try {
-        setUser(JSON.parse(savedUser));
-      } catch (e) {
-        localStorage.removeItem('presensi_user');
+        const res = await fetch('/api/auth/session', { credentials: 'include' });
+        if (res.ok) {
+          const sessionUser = await res.json();
+          setUser(sessionUser);
+        }
+      } catch (error) {
+        console.error(error);
+      } finally {
+        setIsInitialized(true);
       }
-    }
-    setIsInitialized(true);
+    };
+
+    initSession();
   }, []);
 
   const handleLogin = (userData: User) => {
     setUser(userData);
-    localStorage.setItem('presensi_user', JSON.stringify(userData));
   };
 
-  const handleLogout = () => {
-    setUser(null);
-    localStorage.removeItem('presensi_user');
+  const handleLogout = async () => {
+    try {
+      await fetch('/api/auth/logout', {
+        method: 'POST',
+        credentials: 'include',
+      });
+    } catch (error) {
+      console.error(error);
+    } finally {
+      setUser(null);
+    }
   };
 
   if (!isInitialized) return null;
