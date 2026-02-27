@@ -13,6 +13,27 @@ const auth = new google.auth.GoogleAuth({
 const sheets = google.sheets({ version: "v4", auth });
 const SPREADSHEET_ID = process.env.GOOGLE_SHEET_ID;
 
+const normalizeTanggal = (raw: string) => {
+  if (!raw) return raw;
+
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+
+  const slash = raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (slash) {
+    const day = slash[1].padStart(2, '0');
+    const month = slash[2].padStart(2, '0');
+    const year = slash[3];
+    return `${year}-${month}-${day}`;
+  }
+
+  const parsed = new Date(raw);
+  if (!Number.isNaN(parsed.getTime())) {
+    return parsed.toISOString().slice(0, 10);
+  }
+
+  return raw;
+};
+
 export async function GET() {
   const session = await getSessionFromCookies();
   if (!session) return NextResponse.json({ message: 'Unauthorized' }, { status: 401 });
@@ -28,7 +49,7 @@ export async function GET() {
     const logs = rows.map((row) => ({
       id: row[0],
       nama: row[1],
-      tanggal: row[2],
+      tanggal: normalizeTanggal(row[2]),
       status: row[3],
       keterangan: row[4],
       timestamp: row[5],
